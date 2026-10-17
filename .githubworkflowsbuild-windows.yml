@@ -1,0 +1,52 @@
+name: Build Release (Windows)
+
+on:
+  push:
+    branches:
+      - fix/sky-sampler-clamp
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 120
+    permissions:
+      contents: read
+
+    steps:
+    - name: Checkout repo (with submodules)
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+        fetch-depth: 0
+
+    - name: Apply sampler patch
+      shell: pwsh
+      run: |
+        .\apply-clouds-patch.ps1 -InstallPath $PWD
+
+    - name: Generate Visual Studio solution (premake)
+      run: .\premake5.bat
+
+    - name: Build shaders (if present)
+      run: |
+        if (Test-Path .\buildshaders.bat) { .\buildshaders.bat } else { echo "No buildshaders.bat found or not required." }
+
+    - name: Build solution (Release / x86)
+      run: |
+        for %%f in (build\*.sln) do msbuild "%%f" /p:Configuration=Release /p:Platform=x86 /m
+      shell: cmd
+
+    - name: Find and upload ASI artifact
+      shell: pwsh
+      run: |
+        $asi = Get-ChildItem -Path . -Recurse -Filter *.asi -ErrorAction SilentlyContinue | Select-Object -First 1
+        if (-not $asi) { Write-Error "No .asi found in build output." ; exit 1 }
+        Write-Output "Found: $($asi.FullName)"
+    - name: Upload ASI artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: GTAIV.EFLC.FusionFix-asi
+        path: |
+          **/*.asi
+        retention-days: 7
